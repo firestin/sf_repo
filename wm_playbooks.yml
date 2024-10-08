@@ -1,0 +1,114 @@
+---
+  
+- hosts: app
+  gather_facts: yes
+  user: root
+  become: true
+  become_method: sudo
+  become_user: root
+
+  tasks:
+
+  - name: Install Docker On Deb Linux
+    apt:
+      name: "{{ item }}"
+      state: present
+    loop:
+      - docker
+      - docker.io
+    when: ansible_os_family == "Debian"
+
+  - name: Install Docker On RPM Linux
+    block:
+      - name: "Add YUM repository"
+        yum_repository:
+          name: docker-ce-stable
+          description: "Docker CE Stable"
+          file: docker
+          baseurl: https://download.docker.com/linux/centos/$releasever/$basearch/stable
+          enabled: yes
+          gpgcheck: yes
+          gpgkey: https://download.docker.com/linux/centos/gpg
+
+      - name: Install docker
+        yum:
+          name: "{{ item }}"
+          state: present
+        loop:
+          - docker-ce
+          - docker-ce-cli
+    when: ansible_os_family == "RedHat"
+
+  - name: Docker systemd
+    systemd:
+      name: docker
+      enabled: yes
+      state: started
+
+
+- hosts: database
+  gather_facts: yes
+  user: root
+  become: true
+  become_method: sudo
+  become_user: root
+
+  tasks:
+
+  - name: Add postgresql repo key
+    shell: wget --quiet -O - https://www.postgresql.org/media/keys/ACCC4CF8.asc | sudo apt-key add -
+
+  - name: "Add PostgreSQL repository"
+    apt_repository:
+      repo: "deb http://apt.postgresql.org/pub/repos/apt {{ ansible_distribution_release }}-pgdg main"
+      filename: postgresql
+
+  - name: "Install PostgreSQL version {{ pg_ver }}"
+    apt:
+      name: "{{ item }}"
+      state: present
+    loop:
+      - "postgresql-{{ pg_ver }}"
+      - postgresql-contrib
+      - "postgresql-client-{{ pg_ver }}"
+
+  - name: "Create {{ pg_data }} Directory"
+    file:
+      path: "{{ pg_data }}"
+      state: directory
+      owner: postgres
+      group: postgres
+      mode: 0750
+
+  - name: Register Contents of PGDATA Folder
+    shell: "ls {{ pg_data }}"
+    register: pg_contents
+
+  - name: Initialize PostgreSQL
+    shell: "/usr/lib/postgresql/{{ pg_ver }}/bin/initdb"
+    environment:
+      PGDATA: "{{ pg_data }}"
+    when: pg_contents["stdout_lines"] | length == 0
+    become: yes
+    become_user: postgres
+
+  - name: Setting postgres
+    replace:
+      path: "/etc/postgresql/{{ pg_ver }}/main/postgresql.conf"
+      regexp: "^data_directory =.*$"
+      replace: "data_directory = '{{ pg_data }}'"
+    notify:
+      - reload postgres
+
+  - name: Postgresql systemd enable
+    systemd:
+      name: "postgresql@{{ pg_ver }}-main"
+      enabled: yes
+      state: started
+
+  handlers:
+
+  - name: reload postgres
+    systemd:
+      name: "postgresql@{{ pg_ver }}-main"
+      state: restarted
