@@ -1,2 +1,4 @@
 node_modules/
-SF_TEST
+vendor/
+composer.lock
+composer.phar
