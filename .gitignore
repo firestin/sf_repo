@@ -2,8 +2,6 @@
 bin/
 obj/
 
-# Publish output — скачивай вручную, не храним в репо
-Form1204/publish/
 
 # IDE
 .vs/
